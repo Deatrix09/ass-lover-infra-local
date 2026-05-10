@@ -1,0 +1,200 @@
+name: rag-prod
+
+# IMAGE TAGS — update these when deploying new versions
+# E.g. ghcr.io/your-org/rag-backend:sha-abc1234
+#
+# After setting up GitHub Actions, images are published automatically.
+# Replace 'your-org' with your GitHub organization/user.
+
+services:
+  # ----- Firecrawl Engine (build from source) -----
+  playwright-service:
+    build:
+      context: ../firecrawl-main/apps/playwright-service-ts
+    environment:
+      PORT: 3000
+    networks:
+      - backend
+
+  firecrawl-api:
+    build:
+      context: ../firecrawl-main/apps/api
+    environment:
+      HOST: "0.0.0.0"
+      PORT: 3002
+      REDIS_URL: redis://redis:6379
+      REDIS_RATE_LIMIT_URL: redis://redis:6379
+      PLAYWRIGHT_MICROSERVICE_URL: http://playwright-service:3000/scrape
+      POSTGRES_USER: firecrawl
+      POSTGRES_PASSWORD: firecrawlpassword
+      POSTGRES_DB: firecrawl
+      POSTGRES_HOST: nuq-postgres
+      NUQ_RABBITMQ_URL: amqp://rabbitmq:5672
+      EXTRACT_WORKER_PORT: 3004
+      WORKER_PORT: 3005
+      ENV: local
+      NUM_WORKERS_PER_QUEUE: 4
+    depends_on:
+      redis:
+        condition: service_started
+      playwright-service:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      nuq-postgres:
+        condition: service_healthy
+    ports:
+      - "3002:3002"
+    networks:
+      - backend
+
+  redis:
+    image: redis:alpine
+    networks:
+      - backend
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    hostname: rabbitmq
+    user: root
+    environment:
+      RABBITMQ_ERLANG_COOKIE: "supersecretcookie"
+      HOME: "/var/lib/rabbitmq"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  nuq-postgres:
+    build:
+      context: ../firecrawl-main/apps/nuq-postgres
+    environment:
+      POSTGRES_USER: firecrawl
+      POSTGRES_PASSWORD: firecrawlpassword
+      POSTGRES_DB: firecrawl
+    command: ["postgres", "-c", "cron.database_name=firecrawl"]
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U firecrawl -d firecrawl"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ----- Keycloak (Identity Provider) -----
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/ragdb
+      KC_DB_USERNAME: raguser
+      KC_DB_PASSWORD: ragpassword
+      KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: kcadmin
+      KC_HTTP_PORT: 8080
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000; echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3; timeout 1 cat <&3 | grep -q '200'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # ----- Our Services (images from GHCR) -----
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: raguser
+      POSTGRES_PASSWORD: ragpassword
+      POSTGRES_DB: ragdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raguser -d ragdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333"
+    networks:
+      - backend
+
+  backend:
+    build:
+      context: ../rag-backend
+    environment:
+      DATABASE_URL: postgresql://raguser:ragpassword@postgres:5432/ragdb
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      FIRECRAWL_URL: http://firecrawl-api:3002
+      FIRECRAWL_KEY: fc-local-key
+      OLLAMA_URL: http://host.docker.internal:11434
+      DATA_DIR: /app/artifacts
+      PYTHONUNBUFFERED: "1"
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: "${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}"
+      KEYCLOAK_REALM: rag
+    volumes:
+      - ../rag-backend/artifacts:/app/artifacts
+      - hf_cache:/root/.cache/huggingface
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      firecrawl-api:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    networks:
+      - backend
+
+  frontend:
+    build:
+      context: ../rag-frontend
+    ports:
+      - "80:80"
+      # - "443:443"  # Uncomment for HTTPS
+    # For HTTPS: uncomment volumes below and rename nginx-ssl.conf → nginx.conf
+    # volumes:
+    #   - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+    networks:
+      - backend
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  backend_data:
+  hf_cache:
+
+networks:
+  backend:
+    driver: bridge
