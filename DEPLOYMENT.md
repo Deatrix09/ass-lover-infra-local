@@ -41,10 +41,10 @@ ollama list   # měl by ukázat llama3.2
 ```bash
 mkdir projekt && cd projekt
 
-git clone https://github.com/JaroslavSimek1/rag-infra
-git clone https://github.com/JaroslavSimek1/rag-frontend
-git clone https://github.com/JaroslavSimek1/rag-backend
-git clone https://github.com/mendableai/firecrawl firecrawl-main
+git clone https://github.com/Deatrix09/ass-lover-infra-local
+git clone https://github.com/Deatrix09/ass-lover-frontend-local
+git clone https://github.com/Deatrix09/ass-lover-backend-local
+git clone https://github.com/Deatrix09/firecrawl-main
 ```
 
 Výsledná struktura:
@@ -52,17 +52,17 @@ Výsledná struktura:
 ```
 projekt/
 ├── firecrawl-main/
-├── rag-backend/
-├── rag-frontend/
-└── rag-infra/          ← odtud spouštíme vše
+├── ass-lover-backend-local/
+├── ass-lover-frontend-local/
+└── ass-lover-infra-local/          ← odtud spouštíme vše
 ```
 
 ### 2. Uprav org v docker-compose.prod.yaml
 
 ```bash
-cd rag-infra
+cd ass-lover-infra-local
 # Nahraď 'your-org' správnou org v docker-compose.prod.yaml
-sed -i 's/your-org/JaroslavSimek1/g' docker-compose.prod.yaml
+sed -i 's/your-org/Deatrix09/g' docker-compose.prod.yaml
 ```
 
 ### 3. Spusť celý stack

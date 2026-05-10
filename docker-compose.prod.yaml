@@ -1,10 +1,10 @@
-name: rag-prod
+name: ass-lover-prod
 
 # IMAGE TAGS — update these when deploying new versions
-# E.g. ghcr.io/your-org/rag-backend:sha-abc1234
+# E.g. ghcr.io/Deatrix09/ass-lover-backend-local:sha-abc1234
 #
 # After setting up GitHub Actions, images are published automatically.
-# Replace 'your-org' with your GitHub organization/user.
+# Replace 'your-org' with your GitHub organization/user 'Deatrix09'.
 
 services:
   # ----- Firecrawl Engine (build from source) -----
